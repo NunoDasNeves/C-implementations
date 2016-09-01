@@ -23,45 +23,46 @@
 // not sure how this should be done exactly?
 #define BUCKET_INC 16
 
-typedef _HTnode * Node;
+typedef struct _HTnode * Node;
 
 struct _HTnode {
     HTableKey key;
     HTableItem val;
     Node next;
-}
+};
 
-struct _HTableRep {
+struct _HTRep {
     // we will have an array of nodes for our representation
     Node *list;
     // these are distinct! Watch out bro.
     u_int32_t buckets;  // size of our Nodes array
     u_int32_t items;    // total number of Nodes
-} htRep;
+};
 
 // handy statics
-static typedef u_int32_t HTIndex;
+typedef u_int32_t HTIndex;
 
 static Node createNode(HTableKey newKey, HTableItem newItem);
 static void freeNode(Node N);
+static void freeBucket(Node N);
 static u_int32_t hash(HTable T, HTableKey key);
-static void resize(HTable T, HTableKey key);
+static void resize(HTable T);
 
 // Create a new table
 HTable HTableNew() 
 {
-    HTable T = malloc(sizeof(struct _HTableRep));
-    T->list = malloc(sizeof(struct _HTnode)*INIT_BUCKETS);
+    HTable T = malloc(sizeof(struct _HTRep));
+    T->list = malloc(sizeof(struct _HTnode) * INIT_BUCKETS);
     T->buckets = INIT_BUCKETS;
+    T->items = 0;
     // initialize all buckets to null
     int i;
     for (i=0;i<T->buckets;i++) T->list[i] = NULL;
-    T->items = 0;
     return T;
 }
 
 // Return how many values are currently stored in the table
-int HTableGetSize(HTable T) 
+u_int32_t HTableGetSize(HTable T) 
 {
     return T->items;
 }
@@ -69,30 +70,103 @@ int HTableGetSize(HTable T)
 // Insert a new value into the table with the specified key
 void HTableInsert(HTable T, HTableKey newKey, HTableItem newItem) 
 {
-    HTIndex index = hash(newKey);
-    if (
-    
+    assert (T!=NULL);
+    HTIndex index = hash(T, newKey);
+    // loop through the list at that index, updating the key's value if it exists already
+    Node * prev = &T->list[index];
+    Node curr = T->list[index];
+    while (curr != NULL) {
+        if (strcmp(newKey, curr->key) == 0) {
+            curr->val = newItem;
+            return;
+        }
+        prev=&curr->next;
+        curr=curr->next;
+    }
+    // if we got here, it doesn't exist! so create it
+    Node new = createNode(newKey, newItem);
+    // append to the end of the list we just traversed
+    *prev = new;
+    // increment our item count
+    T->items++;
+    // if our buckets are getting too full, resize
+    // TODO 
+    resize(T);
+}
+
+signed char HTableKeyExists(HTable T, HTableKey theKey) {
+    assert (T!=NULL);
+    HTIndex index = hash(T, theKey);
+    // loop through the list at that index
+    Node curr = T->list[index];
+    while (curr != NULL) {
+        if (strcmp(theKey, curr->key) == 0) {
+            return 1;
+        }
+        curr=curr->next;
+    }
+    return 0;
 }
 
 // Look up a value based on a key
 HTableItem HTableLookup(HTable T, HTableKey theKey)
 {
-    return 0;
+    assert (T!=NULL);
+    HTIndex index = hash(T, theKey);
+    // loop through the list at that index
+    Node curr = T->list[index];
+    while (curr != NULL) {
+        if (strcmp(theKey, curr->key) == 0) {
+            return curr->val;
+        }
+        curr=curr->next;
+    }
+    fprintf(stderr,"Error: Key \"%s\" not found in HashTable\n", theKey);
+    exit(1);
 }
 
 // Delete a key and associated value from the table
 void HTableRemove(HTable T, HTableKey delKey)
 {
-
+    HTIndex index = hash(T, delKey);
+    // loop through and remove the node when we find it
+    Node * prev = &T->list[index];
+    Node curr = T->list[index];
+    while (curr != NULL) {
+        if (strcmp(delKey, curr->key) == 0) {
+            // point list around the node and free it
+            *prev=curr->next;
+            freeNode(curr);
+            // decrement our item count
+            T->items--;
+            return;
+        }
+        prev=&curr->next;
+        curr=curr->next;
+    }
+    // if we didn't find it, no biggie. nothing happens (should possibly error out though?)
+    // may need to resize
+    // TODO
+    resize(T);
 }
 
 // Destroy the table and free associated memory
 void HTableFree(HTable T)
 {
+    int i;
+    for(i = 0;i < T->buckets;i++) freeBucket(T->list[i]);
     free(T);
 }
 
+static void freeBucket(Node N) {
+    if (N==NULL) return;
+    freeBucket(N->next);
+    free(N->key);
+    free(N);
+}
+
 static void freeNode(Node N) {
+    if (N==NULL) return;
     free(N->key);
     free(N);
 }
@@ -101,7 +175,7 @@ static void freeNode(Node N) {
 static Node createNode(HTableKey newKey, HTableItem newItem)
 {
     Node N = malloc(sizeof(struct _HTnode));
-    N->item = newItem;
+    N->val = newItem;
     // need to add 1 for the terminating /0
     N->key = malloc(strlen(newKey)*sizeof(char) + 1);
     strcpy(N->key, newKey);
@@ -121,4 +195,8 @@ static HTIndex hash(HTable T, HTableKey key)
     }
     //return the mod so it gives us an index to our array
     return tot%T->buckets;
+}
+
+static void resize(HTable T)
+{
 }
